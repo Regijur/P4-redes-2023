@@ -1,3 +1,5 @@
+import traceback
+
 class CamadaEnlace:
     ignore_checksum = False
 
@@ -43,20 +45,18 @@ class Enlace:
     def __init__(self, linha_serial):
         self.linha_serial = linha_serial
         self.linha_serial.registrar_recebedor(self.__raw_recv)
+        self.data = b''
 
     def registrar_recebedor(self, callback):
         self.callback = callback
 
     def enviar(self, datagrama: bytes):
-        # TODO: Preencha aqui com o código para enviar o datagrama pela linha
-        # serial, fazendo corretamente a delimitação de quadros e o escape de
-        # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
         datagrama = datagrama.replace(b'\xDB', b'\xDB\xDD')
         datagrama = datagrama.replace(b'\xC0', b'\xDB\xDC')
         response = b'\xc0' + datagrama + b'\xc0'
         self.linha_serial.enviar(response)
 
-    def __raw_recv(self, dados):
+    def __raw_recv(self, dados: bytes):
         # TODO: Preencha aqui com o código para receber dados da linha serial.
         # Trate corretamente as sequências de escape. Quando ler um quadro
         # completo, repasse o datagrama contido nesse quadro para a camada
@@ -64,4 +64,34 @@ class Enlace:
         # vir quebrado de várias formas diferentes - por exemplo, podem vir
         # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
         # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+        self.data += dados
+        datagramas, self.data = self.verify(self.data)
+
+        for datagrama in datagramas:
+            try:
+                response = datagrama.replace(b'\xDB\xDC', b'\xC0')
+                response = response.replace(b'\xDB\xDD', b'\xDB')
+                self.callback(response)
+            except:
+                traceback.print_exc()
+
+    def verify(self, data: bytes) -> tuple[list[bytes], bytes]:
+        datagramas = []
+        rest = b''
+        write = 0
+
+        for d in data:
+            if d == 0xc0:
+                write = True
+
+            if not write:
+                rest += bytes([d])
+            else:
+                if(len(rest) > 0):
+                    datagramas.append(rest)
+                    rest = b''
+                
+                write = False
+
+        return datagramas, rest
+        
